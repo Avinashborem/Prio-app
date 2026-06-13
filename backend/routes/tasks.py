@@ -38,8 +38,7 @@ def update_task(task_id: int, task: schemas.TaskUpdate, db: Session = Depends(ge
     db_task = db.query(models.Task).filter(models.Task.id == task_id).first()
     if not db_task:
         raise HTTPException(status_code=404, detail="Task not found")
-    update_data = task.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
+    for key, value in task.model_dump(exclude_unset=True).items():
         setattr(db_task, key, value)
     db.commit()
     db.refresh(db_task)
@@ -52,18 +51,14 @@ def delete_task(task_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Task not found")
     db.delete(db_task)
     db.commit()
-    return {"message": "Task deleted successfully"}
+    return {"message": "Task deleted"}
 
 @router.get("/stats/summary")
 def get_stats(db: Session = Depends(get_db)):
     total = db.query(models.Task).count()
     completed = db.query(models.Task).filter(models.Task.completed == True).count()
-    by_category = {}
-    for cat in ["work", "personal", "study"]:
-        by_category[cat] = db.query(models.Task).filter(models.Task.category == cat).count()
-    by_priority = {}
-    for pri in ["high", "medium", "low"]:
-        by_priority[pri] = db.query(models.Task).filter(models.Task.priority == pri).count()
+    by_category = {cat: db.query(models.Task).filter(models.Task.category == cat).count() for cat in ["work", "personal", "study"]}
+    by_priority = {pri: db.query(models.Task).filter(models.Task.priority == pri).count() for pri in ["high", "medium", "low"]}
     return {
         "total": total,
         "completed": completed,
@@ -72,3 +67,41 @@ def get_stats(db: Session = Depends(get_db)):
         "by_category": by_category,
         "by_priority": by_priority
     }
+
+# ── Subtask routes ──
+
+@router.post("/{task_id}/subtasks", response_model=schemas.SubtaskResponse, status_code=201)
+def add_subtask(task_id: int, subtask: schemas.SubtaskCreate, db: Session = Depends(get_db)):
+    task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    db_subtask = models.Subtask(title=subtask.title, task_id=task_id)
+    db.add(db_subtask)
+    db.commit()
+    db.refresh(db_subtask)
+    return db_subtask
+
+@router.put("/{task_id}/subtasks/{subtask_id}", response_model=schemas.SubtaskResponse)
+def toggle_subtask(task_id: int, subtask_id: int, db: Session = Depends(get_db)):
+    subtask = db.query(models.Subtask).filter(
+        models.Subtask.id == subtask_id,
+        models.Subtask.task_id == task_id
+    ).first()
+    if not subtask:
+        raise HTTPException(status_code=404, detail="Subtask not found")
+    subtask.completed = not subtask.completed
+    db.commit()
+    db.refresh(subtask)
+    return subtask
+
+@router.delete("/{task_id}/subtasks/{subtask_id}")
+def delete_subtask(task_id: int, subtask_id: int, db: Session = Depends(get_db)):
+    subtask = db.query(models.Subtask).filter(
+        models.Subtask.id == subtask_id,
+        models.Subtask.task_id == task_id
+    ).first()
+    if not subtask:
+        raise HTTPException(status_code=404, detail="Subtask not found")
+    db.delete(subtask)
+    db.commit()
+    return {"message": "Subtask deleted"}

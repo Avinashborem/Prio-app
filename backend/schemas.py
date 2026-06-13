@@ -1,6 +1,18 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
+
+class SubtaskCreate(BaseModel):
+    title: str
+
+class SubtaskResponse(BaseModel):
+    id: int
+    title: str
+    completed: bool
+    task_id: int
+
+    class Config:
+        from_attributes = True
 
 class TaskBase(BaseModel):
     title: str
@@ -24,6 +36,7 @@ class TaskUpdate(BaseModel):
 class TaskResponse(TaskBase):
     id: int
     created_at: datetime
+    subtasks: List[SubtaskResponse] = []
 
     class Config:
         from_attributes = True
