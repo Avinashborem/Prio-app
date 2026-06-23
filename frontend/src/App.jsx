@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Plus, RefreshCw, AlertTriangle } from 'lucide-react'
+import { Plus, RefreshCw, AlertTriangle, LogOut } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 import TaskGroup from './components/TaskGroup'
@@ -8,12 +8,15 @@ import AddTaskForm from './components/AddTaskForm'
 import FilterBar from './components/FilterBar'
 import Dashboard from './components/Dashboard'
 import ThemeToggle from './components/ThemeToggle'
+import AuthPage from './pages/AuthPage'
+import { useAuth } from './context/AuthContext'
 import { getTasks, createTask, updateTask, deleteTask, getStats } from './api'
 import { groupAndSortTasks, getOverdueCount } from './utils/groupTasks'
 
 const DEFAULT_FILTERS = { search: '', category: 'all', priority: 'all', completed: undefined }
 
 export default function App() {
+  const { token, logout } = useAuth()
   const [tasks, setTasks] = useState([])
   const [stats, setStats] = useState(null)
   const [filters, setFilters] = useState(DEFAULT_FILTERS)
@@ -31,6 +34,7 @@ export default function App() {
   }, [dark])
 
   const fetchAll = useCallback(async () => {
+    if (!token) return
     try {
       const params = {
         ...(filters.search && { search: filters.search }),
@@ -41,12 +45,17 @@ export default function App() {
       const [tasksRes, statsRes] = await Promise.all([getTasks(params), getStats()])
       setTasks(tasksRes.data)
       setStats(statsRes.data)
-    } catch {
-      toast.error('Cannot reach backend. Make sure FastAPI is running.')
+    } catch (err) {
+      if (err.response?.status === 401) {
+        logout()
+        toast.error('session expired — please log in again')
+      } else {
+        toast.error('cannot reach backend')
+      }
     } finally {
       setLoading(false)
     }
-  }, [filters])
+  }, [filters, token])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
@@ -78,13 +87,14 @@ export default function App() {
     toast.success('task deleted')
   }
 
-  // Group and sort tasks — recomputed only when tasks change
   const groups = useMemo(() => groupAndSortTasks(tasks), [tasks])
   const overdueCount = useMemo(() => getOverdueCount(tasks), [tasks])
 
+  // Show auth page if not logged in — AFTER all hooks
+  if (!token) return <AuthPage />
+
   return (
     <div className="min-h-screen bg-bg text-text transition-colors duration-300">
-      {/* Header */}
       <header className="sticky top-0 z-40 bg-surface/80 backdrop-blur border-b border-border">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
           <div className="min-w-0">
@@ -98,7 +108,6 @@ export default function App() {
             </div>
             <div className="flex items-center gap-3">
               <h1 className="text-lg font-display font-bold text-text tracking-tight">Prio</h1>
-              {/* Overdue badge */}
               {overdueCount > 0 && (
                 <motion.span
                   initial={{ scale: 0 }}
@@ -127,32 +136,31 @@ export default function App() {
               <span className="hidden sm:inline">New Task</span>
               <span className="sm:hidden">New</span>
             </button>
+            <button
+              onClick={() => { logout(); toast.success('logged out') }}
+              className="p-2 rounded-lg border border-border text-text-muted hover:text-red-400 hover:border-red-400/30 transition-colors"
+              title="Logout"
+            >
+              <LogOut size={16} />
+            </button>
           </div>
         </div>
       </header>
 
-      {/* Main */}
       <main className="max-w-6xl mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-4">
           <FilterBar filters={filters} onChange={setFilters} />
 
           {loading ? (
             <div className="text-center py-16 text-text-muted">
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
-                className="inline-block"
-              >
+              <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: 'linear' }} className="inline-block">
                 <RefreshCw size={24} />
               </motion.div>
               <p className="mt-2 text-sm font-mono">loading tasks...</p>
             </div>
           ) : tasks.length === 0 ? (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="text-center py-16 text-text-muted"
-            >
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+              className="text-center py-16 text-text-muted">
               <p className="text-4xl mb-3 font-mono">∅</p>
               <p className="font-display font-semibold text-text">No tasks found</p>
               <p className="text-sm mt-1 font-mono">// add a task or adjust filters</p>
